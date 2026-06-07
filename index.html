@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a2238">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Meca">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Constructeur de Route</title>
+<style>
+  :root{
+    --bg:#1a2238; --panel:#222c4a; --grid:#2c3a5e; --gridline:#3a4a72;
+    --road:#3d3d42; --roadline:#f4d35e; --accent:#ee6c4d; --green:#43aa8b;
+    --txt:#e6ebf5; --muted:#9aa6c4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:'Trebuchet MS','Segoe UI',sans-serif;
+    background:
+      radial-gradient(circle at 20% 5%, #2a3458 0%, transparent 45%),
+      radial-gradient(circle at 90% 95%, #1e2a4a 0%, transparent 45%),
+      var(--bg);
+    color:var(--txt);
+    display:flex;flex-direction:column;align-items:center;
+    padding:8px 8px 14px;gap:8px;
+    overflow:hidden;
+  }
+  h1{
+    font-size:18px;letter-spacing:.5px;text-align:center;
+    text-shadow:0 2px 0 rgba(0,0,0,.3);
+  }
+  h1 .car{display:inline-block;animation:bob 2s ease-in-out infinite}
+  @keyframes bob{50%{transform:translateY(-4px) rotate(-4deg)}}
+
+  .board-wrap{
+    background:var(--panel);padding:6px;border-radius:14px;
+    box-shadow:0 8px 22px rgba(0,0,0,.4);
+  }
+  #board{
+    display:grid;background:var(--grid);
+    border-radius:8px;overflow:hidden;gap:1px;padding:1px;
+    position:relative;
+  }
+  .cell{
+    width:var(--ts);height:var(--ts);
+    background:var(--gridline);position:relative;cursor:pointer;
+  }
+  .cell:active{filter:brightness(1.3)}
+  .cell svg{width:100%;height:100%;display:block}
+  .cell.start,.cell.end{outline:2px solid;outline-offset:-2px;border-radius:3px}
+  .badge{
+    position:absolute;top:1px;left:1px;font-size:9px;font-weight:bold;
+    background:rgba(0,0,0,.55);padding:0 3px;border-radius:3px;z-index:5;
+    pointer-events:none;
+  }
+
+  .arrow{
+    position:absolute;width:calc(var(--ts) * .42);height:calc(var(--ts) * .42);
+    z-index:10;background:var(--roadline);border:2px solid #1a1a1a;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:calc(var(--ts) * .26);color:#1a1a1a;cursor:pointer;
+    box-shadow:0 2px 4px rgba(0,0,0,.5);
+  }
+  .arrow:active{transform:scale(1.25)}
+
+  .car-sprite{
+    position:absolute;width:var(--ts);height:var(--ts);top:1px;left:1px;
+    z-index:20;pointer-events:none;display:flex;align-items:center;justify-content:center;
+    transition:transform .36s linear;
+  }
+  .car-sprite .halo{
+    position:absolute;width:calc(var(--ts) * .82);height:calc(var(--ts) * .82);
+    border-radius:50%;background:var(--halo,#888);opacity:.55;
+    box-shadow:0 0 6px 2px var(--halo,#888);z-index:-1;
+  }
+  .car-sprite.wagon .halo{width:calc(var(--ts) * .68);height:calc(var(--ts) * .68);opacity:.45}
+  .car-sprite .body{font-size:calc(var(--ts) * .6);filter:drop-shadow(0 2px 2px rgba(0,0,0,.5));transition:transform .15s linear;display:inline-block;position:relative;z-index:1}
+  /* explosion de collision */
+  .boom{
+    position:absolute;width:var(--ts);height:var(--ts);z-index:30;pointer-events:none;
+    display:flex;align-items:center;justify-content:center;
+    font-size:calc(var(--ts) * .9);
+    animation:boom .7s ease-out forwards;
+  }
+  @keyframes boom{
+    0%{transform:scale(.2) rotate(0deg);opacity:0}
+    30%{transform:scale(1.4) rotate(15deg);opacity:1}
+    100%{transform:scale(1.8) rotate(-10deg);opacity:0}
+  }
+  .car-sprite.crashed .body{animation:shake .3s ease-in-out 3}
+  @keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-18deg)}75%{transform:rotate(18deg)}}
+  /* débris persistants après explosion */
+  .debris{
+    position:absolute;width:var(--ts);height:var(--ts);z-index:25;pointer-events:none;
+    display:flex;align-items:center;justify-content:center;
+    font-size:calc(var(--ts) * .55);opacity:.85;
+    animation:debris-in .4s ease-out;
+  }
+  @keyframes debris-in{0%{opacity:0;transform:scale(0)}100%{opacity:.85;transform:scale(1)}}
+  /* grosse explosion (collision) */
+  .boom.big{font-size:calc(var(--ts) * 1.4);animation:boom 1s ease-out forwards}
+  /* fond rouge clignotant : cul-de-sac */
+  .cell.deadend-flash{animation:deadend 0.6s ease-in-out infinite}
+  .cell.obstacle{background:#2a3320;display:flex;align-items:center;justify-content:center;cursor:not-allowed}
+  .obstacle-emoji{font-size:calc(var(--ts) * .62);pointer-events:none}
+  .fx-layer{position:fixed;inset:0;z-index:200;pointer-events:none;overflow:hidden}
+  .confetti{position:absolute;top:-12px;width:9px;height:14px;border-radius:2px;animation:fall linear forwards}
+  @keyframes fall{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(105vh) rotate(720deg);opacity:.9}}
+  .bolt{position:absolute;animation:boltflash .5s ease-out forwards}
+  @keyframes boltflash{0%{opacity:0;transform:scale(.4)}30%{opacity:1;transform:scale(1.3)}100%{opacity:0;transform:scale(1)}}
+  .screen-flash{position:absolute;inset:0;background:#ffffff;opacity:0;animation:sflash .4s ease-out 2}
+  @keyframes sflash{0%,100%{opacity:0}50%{opacity:.35}}
+  @keyframes deadend{
+    0%,100%{background:var(--gridline)}
+    50%{background:#c83a3a}
+  }
+
+
+  /* controls */
+  .controls{width:100%;max-width:420px;display:flex;flex-direction:column;gap:8px}
+
+  /* ----- Mise en page paysage (tablette) : plateau à gauche, contrôles à droite ----- */
+  @media (orientation:landscape) and (min-width:820px){
+    body{
+      flex-direction:row;flex-wrap:wrap;align-items:flex-start;justify-content:center;
+      padding:10px;gap:16px;overflow:auto;
+    }
+    h1{width:100%;font-size:20px;margin-bottom:2px}
+    .board-wrap{flex:0 0 auto}
+    .controls{
+      max-width:none;width:auto;flex:1 1 320px;min-width:300px;max-width:440px;
+      align-self:stretch;
+    }
+    /* la liste de circuits peut être un peu plus haute en paysage */
+    .saves-list{max-height:60vh}
+  }
+  .palette{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+  .ptile{
+    height:56px;background:var(--panel);border-radius:8px;cursor:pointer;
+    border:2px solid transparent;padding:2px 2px 0;display:flex;flex-direction:column;
+  }
+  .ptile.active{border-color:var(--roadline);box-shadow:0 0 0 2px var(--roadline)}
+  .ptile svg{width:100%;flex:1;min-height:0}
+  .pt-label{font-size:7px;text-align:center;color:var(--muted);padding:1px 0;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .tools{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+  .tools button{font-size:11px;padding:9px 2px}
+  /* Modale Circuits */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;
+    display:none;align-items:center;justify-content:center;padding:16px}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--panel);border-radius:14px;padding:16px;max-width:340px;width:100%;
+    max-height:85vh;display:flex;flex-direction:column;gap:10px;
+    box-shadow:0 12px 30px rgba(0,0,0,.5)}
+  .modal h3{font-size:16px}
+  .modal .close-x{position:absolute;background:none;font-size:20px;padding:4px 8px}
+  .modal-header{display:flex;justify-content:space-between;align-items:center}
+  .save-row{display:flex;gap:6px}
+  .save-row input{flex:1;background:var(--grid);color:var(--txt);border:none;
+    border-radius:8px;padding:9px;font-family:inherit;font-size:13px}
+  .save-row button{background:var(--green);font-size:12px;padding:9px 12px}
+  .saves-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    display:flex;flex-direction:column;gap:5px;
+    background:var(--bg);border-radius:8px;padding:6px;min-height:120px;max-height:48vh}
+  .saves-list::-webkit-scrollbar{width:8px}
+  .saves-list::-webkit-scrollbar-thumb{background:var(--roadline);border-radius:4px}
+  .saves-list::-webkit-scrollbar-track{background:transparent}
+  .save-item{display:flex;align-items:center;gap:6px;background:var(--grid);
+    border-radius:8px;padding:8px 10px}
+  .save-item .name{flex:1;font-size:13px;font-weight:bold;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .save-item .date{font-size:9px;color:var(--muted)}
+  .save-item button{font-size:11px;padding:6px 8px}
+  .load-btn{background:var(--roadline);color:#1a1a1a}
+  .del-btn{background:var(--accent)}
+  .saves-empty{text-align:center;color:var(--muted);font-size:12px;padding:20px 0}
+  .obst-row{display:flex;align-items:center;gap:10px;padding:2px 2px}
+  .obst-label{font-size:12px;color:var(--muted);font-weight:bold;white-space:nowrap}
+  .obst-label b{color:var(--roadline);font-size:14px}
+  #obst-slider{flex:1;accent-color:var(--roadline);height:24px}
+  button{
+    font-family:inherit;font-weight:bold;font-size:12px;cursor:pointer;
+    border:none;border-radius:10px;padding:11px 4px;color:#fff;
+    background:var(--grid);
+  }
+  button:active{transform:scale(.95)}
+  .btn-go{background:var(--green);grid-column:1/-1;font-size:15px;padding:13px}
+  .play-row{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px}
+  .play-row .btn-go{grid-column:auto}
+  .btn-pause{background:var(--accent);font-size:13px}
+  .btn-stop{background:#6c7a96;font-size:13px}
+  .btn-pause:disabled,.btn-stop:disabled{opacity:.4}
+  .speed{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .speed-label{font-size:11px;color:var(--muted);font-weight:bold}
+  .speed-btn{flex:1;padding:8px 4px;font-size:12px;background:var(--grid)}
+  .speed-btn.active{background:var(--roadline);color:#1a1a1a}
+  #msg{text-align:center;font-size:13px;font-weight:bold;min-height:18px}
+  .win{color:#7ef0d2}
+  .fail{color:#ffb59e}
+  .hint{font-size:10px;color:var(--muted);text-align:center;line-height:1.4}
+  .hint b{color:var(--roadline)}
+</style>
+</head>
+<body>
+  <h1>Constructeur de Route <span class="car">🚂</span></h1>
+
+  <div class="board-wrap">
+    <div id="board"></div>
+  </div>
+
+  <div class="controls">
+    <div class="palette" id="palette"></div>
+    <div class="obst-row">
+      <span class="obst-label">Obstacles : <b id="obst-val">36</b></span>
+      <input type="range" id="obst-slider" min="36" max="60" value="36" step="2">
+    </div>
+    <div class="tools">
+      <button id="gen-obst">⛰️ Obstacles</button>
+      <button id="erase">🧽 Gomme</button>
+      <button id="clear">🗑️ Effacer</button>
+      <button id="save">💾 Circuits</button>
+    </div>
+    <div class="play-row">
+      <button id="go" class="btn-go">▶ Lancer</button>
+      <button id="pause" class="btn-pause" disabled>⏸ Pause</button>
+      <button id="stop" class="btn-stop" disabled>⏹ Stop</button>
+    </div>
+    <div class="speed" id="speed">
+      <span class="speed-label">Vitesse :</span>
+      <button class="speed-btn" data-mult="2">🐢 Lent</button>
+      <button class="speed-btn active" data-mult="1">Normal</button>
+      <button class="speed-btn" data-mult="0.5">🐇 Rapide</button>
+    </div>
+    <div id="msg"></div>
+    <p class="hint">🚂 <b>rouge</b> A1→B1 &nbsp;•&nbsp; 🚂 <b>bleu</b> A2→B2 &nbsp;•&nbsp; 🚂 <b>jaune</b> A3→B3. <b>Obstacles</b> place les gares, <b>à toi de tracer les rails</b>. <b>Touche</b> : poser • <b>Re-touche</b> : pivoter • <b>Appui long</b> : sortie des T/Y. Chaque train = loco + 3 wagons. Évite les collisions 💥&nbsp;!</p>
+  </div>
+
+  <!-- Modale Circuits -->
+  <div class="modal-bg" id="modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>💾 Mes circuits</h3>
+        <button class="close-x" id="modal-close">✕</button>
+      </div>
+      <div class="save-row">
+        <input type="text" id="save-name" placeholder="Nom du circuit…" maxlength="30">
+        <button id="save-btn">Enregistrer</button>
+      </div>
+      <div class="saves-list" id="saves-list"></div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const COLS=10, ROWS=10;
+  const board=document.getElementById('board');
+
+  // adaptive tile size: fit board width to screen (portrait), capped
+  function setTileSize(){
+    const landscape = (window.matchMedia
+      ? window.matchMedia('(orientation:landscape) and (min-width:820px)').matches
+      : (window.innerWidth>window.innerHeight && window.innerWidth>=820));
+    let avail;
+    if(landscape){
+      // en paysage, le plateau est borné par la hauteur dispo (titre + marges réservés)
+      // et par ~60% de la largeur (le reste pour la colonne de contrôles)
+      const byHeight = window.innerHeight - 70;
+      const byWidth  = window.innerWidth * 0.58;
+      avail = Math.min(byHeight, byWidth, 620);
+    }else{
+      avail = Math.min(window.innerWidth-16, 420);
+    }
+    const ts=Math.floor((avail-2-(COLS-1)) / COLS);
+    document.documentElement.style.setProperty('--ts', ts+'px');
+    return ts;
+  }
+  let TS=setTileSize();
+  board.style.gridTemplateColumns=`repeat(${COLS},var(--ts))`;
+
+  const TYPES={
+    straight:{name:'Droite', open:[0,2]},
+    turn:    {name:'Virage', open:[1,2]},
+    tee:     {name:'T-D', open:[1,2,3]},  // courbe vers l'Est
+    tee_l:   {name:'T-G', open:[1,2,3]},  // miroir : courbe vers l'Ouest
+    cross:   {name:'Croisem.', open:[0,1,2,3]},
+    dcurve:  {name:'Double', open:[0,1,2,3]},  // )( : deux courbes N-E et S-O, sans se croiser
+    ycurve:  {name:'Y', open:[0,1,3]}          // 3 branches courbes N,E,O ; N alterne E/O
+  };
+  // Plus de tuiles à choix multiple : T et X sont désormais déterministes.
+  const MULTI={};
+  const LOOP={};
+
+  // Table de routage. Pour le T, l'entrée par E donne une ALTERNANCE entre deux sorties.
+  const ROUTE={
+    // X : on continue toujours tout droit
+    cross:{0:2, 1:3, 2:0, 3:1},
+    // T droite (base : barre E-O + courbe S->E)
+    tee:{1:[3,2], 3:1, 2:1},
+    // T gauche (miroir : barre E-O + courbe S->O)
+    tee_l:{3:[1,2], 1:3, 2:3},
+    // Double courbe )( (base : courbe N-E + courbe S-O, sans intersection)
+    // - N <-> E (courbe haut-droite)  ; - S <-> O (courbe bas-gauche)
+    dcurve:{0:1, 1:0, 2:3, 3:2},
+    ycurve:{0:[1,3], 1:0, 3:0}
+  };
+
+  // Retourne l'ordre courant des sorties d'alternance pour un T (selon swap).
+  // côté d'entrée qui porte l'alternance, selon le type
+  const ALT_IN={tee:1, tee_l:3, ycurve:0};
+  function teeAlternance(cell){
+    const relIn = ALT_IN[cell.type];
+    const base  = ROUTE[cell.type][relIn];
+    const ord   = cell.swap ? [base[1], base[0]] : base;
+    return {relIn, ordered:ord};
+  }
+  const hasAlternance=t=>t in ALT_IN;
+
+  let selectedType='straight', eraseMode=false, running=false;
+  let speedMult=1;
+  let paused=false;
+  let resumeFn=null;
+  let raceToken=0;
+  const lastRot={};
+  const grid=Array.from({length:ROWS},()=>Array(COLS).fill(null));
+  // Obstacles : cases infranchissables (montagne/lac/forêt). obstacles[r][c] = emoji ou null
+  const obstacles=Array.from({length:ROWS},()=>Array(COLS).fill(null));
+
+  // Trois trains ; positions gare départ/arrivée tirées au sort.
+  const NWAGONS=2;
+  const CARS=[
+    {id:0, name:'Rouge', color:'#e8403a', emoji:'🚂', start:{r:ROWS-1,c:0}, end:{r:0,c:COLS-1}},
+    {id:1, name:'Bleu',  color:'#4d8cee', emoji:'🚂', start:{r:0,c:0}, end:{r:ROWS-1,c:COLS-1}},
+    {id:2, name:'Jaune', color:'#f4c430', emoji:'🚂', start:{r:0,c:Math.floor(COLS/2)}, end:{r:ROWS-1,c:Math.floor(COLS/2)}}
+  ];
+  const WAGON_EMOJI='🚃';
+
+  const rot=(d,t)=>(d+t)%4;
+  const openDirs=cell=>cell?TYPES[cell.type].open.map(d=>rot(d,cell.rot)):[];
+
+
+  function tileSVG(type,r,order){
+    const road='var(--road)', line='var(--roadline)', c=5;
+    const open=TYPES[type].open.map(d=>rot(d,r));
+    const seg=d=>({
+      0:`<rect x="3" y="0" width="4" height="5" fill="${road}"/>`,
+      2:`<rect x="3" y="5" width="4" height="5" fill="${road}"/>`,
+      1:`<rect x="5" y="3" width="5" height="4" fill="${road}"/>`,
+      3:`<rect x="0" y="3" width="5" height="4" fill="${road}"/>`
+    }[d]);
+    const dash=d=>({
+      0:`<line x1="5" y1="0" x2="5" y2="5" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`,
+      2:`<line x1="5" y1="5" x2="5" y2="10" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`,
+      1:`<line x1="5" y1="5" x2="10" y2="5" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`,
+      3:`<line x1="0" y1="5" x2="5" y2="5" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`
+    }[d]);
+    let s='';
+    if(type==='tee' || type==='tee_l'){
+      const angle=r*90;
+      const mirror = (type==='tee_l') ? ' scale(-1 1) translate(-10 0)' : '';
+      s+=`<g transform="rotate(${angle} 5 5)${mirror}">`;
+      s+=`<rect x="0" y="3" width="10" height="4" fill="${road}"/>`;
+      s+=`<path d="M3 10 Q3 5 7 5" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="butt"/>`;
+      s+=`<line x1="0" y1="5" x2="10" y2="5" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`<path d="M5 10 Q5 5 9 5" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`</g>`;
+    }else if(type==='turn'){
+      // virage arrondi : courbe douce entre deux côtés adjacents (base E-S)
+      const angle=r*90;
+      s+=`<g transform="rotate(${angle} 5 5)">`;
+      // ruban de route courbé : du bord Est (10,5) vers le bord Sud (5,10)
+      s+=`<path d="M10 5 Q5 5 5 10" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="butt"/>`;
+      s+=`<path d="M10 5 Q5 5 5 10" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`</g>`;
+    }else if(type==='dcurve'){
+      // double courbe )( : courbe N-E (haut-droite) + courbe S-O (bas-gauche), sans se croiser
+      const angle=r*90;
+      s+=`<g transform="rotate(${angle} 5 5)">`;
+      // courbe N <-> E
+      s+=`<path d="M5 0 Q5 5 10 5" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="butt"/>`;
+      s+=`<path d="M5 0 Q5 5 10 5" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      // courbe S <-> O
+      s+=`<path d="M5 10 Q5 5 0 5" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="butt"/>`;
+      s+=`<path d="M5 10 Q5 5 0 5" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`</g>`;
+    }else if(type==='ycurve'){
+      // Y : branche Nord droite + branches Est/Ouest courbes, rejointes au centre
+      const angle=r*90;
+      s+=`<g transform="rotate(${angle} 5 5)">`;
+      // route (tracé épais)
+      s+=`<path d="M5 0 L5 5" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="butt"/>`;
+      s+=`<path d="M10 5 Q6.5 5.5 5 5" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="round"/>`;
+      s+=`<path d="M0 5 Q3.5 5.5 5 5" fill="none" stroke="${road}" stroke-width="4" stroke-linecap="round"/>`;
+      // pointillés guides
+      s+=`<path d="M5 0 L5 5" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`<path d="M10 5 Q6.5 5.5 5 5" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`<path d="M0 5 Q3.5 5.5 5 5" fill="none" stroke="${line}" stroke-width=".4" stroke-dasharray="1 1"/>`;
+      s+=`</g>`;
+    }else{
+      open.forEach(d=>s+=seg(d));
+      s+=`<rect x="3" y="3" width="4" height="4" fill="${road}"/>`;
+      open.forEach(d=>s+=dash(d));
+    }
+    // numéros sur les sorties d'alternance, agrandis pour lisibilité
+    if(order && order.ordered){
+      const pos={0:{x:5,y:2.6},1:{x:8.3,y:5.4},2:{x:5,y:8.9},3:{x:1.7,y:5.4}};
+      order.ordered.forEach((relD,i)=>{
+        const absD=(relD + r) % 4;
+        const p=pos[absD];
+        s+=`<circle cx="${p.x}" cy="${p.y-1.0}" r="2.1" fill="#1a1a1a"/>`;
+        s+=`<text x="${p.x}" y="${p.y}" font-size="3" fill="#f4d35e" text-anchor="middle" font-family="sans-serif" font-weight="bold">${i+1}</text>`;
+      });
+    }
+    return `<svg viewBox="0 0 10 10">${s}</svg>`;
+  }
+
+  const palette=document.getElementById('palette');
+  Object.keys(TYPES).forEach(t=>{
+    const d=document.createElement('div');
+    d.className='ptile'+(t===selectedType?' active':'');
+    d.innerHTML=tileSVG(t,0,null)+`<div class="pt-label">${TYPES[t].name}</div>`;
+    d.onclick=()=>{selectedType=t;eraseMode=false;eraseBtn.style.outline='';
+      document.querySelectorAll('.ptile').forEach(x=>x.classList.remove('active'));
+      d.classList.add('active');};
+    palette.appendChild(d);
+  });
+
+  // repère un point (start/end) -> {carIndex, kind} pour le marquage
+  function markerAt(r,c){
+    for(const car of CARS){
+      if(car.start.r===r&&car.start.c===c) return {car, kind:'A'};
+      if(car.end.r===r&&car.end.c===c) return {car, kind:'B'};
+    }
+    return null;
+  }
+
+  const cells=[];
+  for(let r=0;r<ROWS;r++){cells[r]=[];for(let c=0;c<COLS;c++){
+    const el=document.createElement('div');el.className='cell';
+    // Appui long tactile détecté par timer (contexte tactile valide -> vibration autorisée).
+    let suppressClick=false, lpTimer=null, longDone=false;
+    el.addEventListener('touchstart',()=>{
+      if(running)return;
+      longDone=false;
+      lpTimer=setTimeout(()=>{
+        lpTimer=null; longDone=true; suppressClick=true;
+        if(navigator.vibrate)navigator.vibrate(30);   // vibration dans le geste tactile
+        altAction(r,c);
+      },450);
+    },{passive:true});
+    const cancelLP=()=>{ if(lpTimer){clearTimeout(lpTimer);lpTimer=null;} };
+    el.addEventListener('touchend',cancelLP);
+    el.addEventListener('touchmove',cancelLP);
+    el.addEventListener('touchcancel',cancelLP);
+    el.oncontextmenu=e=>{
+      e.preventDefault();
+      // souris uniquement : si l'appui long tactile a déjà agi, on ne refait rien.
+      // Si contextmenu arrive avant le timer, on annule le timer pour éviter le double-swap.
+      if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}
+      if(!running && !longDone){
+        longDone=true; suppressClick=true;
+        altAction(r,c);
+      }
+    };
+    el.onclick=(e)=>{
+      if(suppressClick){suppressClick=false;e.preventDefault();return;}
+      if(!running)cellClick(r,c);
+    };
+    board.appendChild(el);cells[r][c]=el;
+  }}
+  // Chaque train : 1 locomotive + NWAGONS wagons. Chaque segment est un élément positionné.
+  // trainEls[i] = { loco, wagons:[...] }
+  const trainEls=CARS.map(car=>{
+    const loco=document.createElement('div');
+    loco.className='car-sprite';loco.style.display='none';
+    loco.style.setProperty('--halo',car.color);
+    loco.innerHTML=`<span class="halo"></span><span class="body">${car.emoji}</span>`;
+    board.appendChild(loco);
+    const wagons=[];
+    for(let w=0;w<NWAGONS;w++){
+      const wg=document.createElement('div');
+      wg.className='car-sprite wagon';wg.style.display='none';
+      wg.style.setProperty('--halo',car.color);
+      wg.innerHTML=`<span class="halo"></span><span class="body">${WAGON_EMOJI}</span>`;
+      board.appendChild(wg);
+      wagons.push(wg);
+    }
+    return {loco, wagons};
+  });
+  // compat : carEls[i] = la locomotive (pour le code STOP existant)
+  const carEls=trainEls.map(t=>t.loco);
+
+  function cellClick(r,c){
+    if(obstacles[r][c])return;            // case obstacle : interdite
+    if(eraseMode){grid[r][c]=null;draw();autosave();return;}
+    const cur=grid[r][c];
+    if(cur && cur.type===selectedType){
+      // re-touche = pivoter (pour toutes les tuiles)
+      cur.rot=(cur.rot+1)%4;
+      cur.order=0;
+      if(!MULTI[cur.type]) lastRot[cur.type]=cur.rot;
+    }else{
+      // pose : reprend la dernière orientation utilisée pour ce type
+      grid[r][c]={type:selectedType,rot:(lastRot[selectedType]||0),order:0};
+    }
+    draw();autosave();
+  }
+  // clic droit / appui long : sur T et X, change l'ordre des sorties ; sinon pivote
+  function altAction(r,c){
+    const cur=grid[r][c];if(!cur)return;
+    if(hasAlternance(cur.type)){
+      // appui long sur un T : inverse l'ordre de l'alternance (1 ↔ 2)
+      cur.swap=!cur.swap;
+    }else{
+      cur.rot=(cur.rot+1)%4;lastRot[cur.type]=cur.rot;
+    }
+    draw();autosave();
+  }
+
+  function draw(){
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      const el=cells[r][c],cell=grid[r][c];
+      el.innerHTML='';
+      el.className='cell';
+      el.style.outlineColor='';
+      // obstacle ?
+      if(obstacles[r][c]){
+        el.classList.add('obstacle');
+        el.innerHTML=`<span class="obstacle-emoji">${obstacles[r][c]}</span>`;
+        continue;
+      }
+      // marqueur départ/arrivée ?
+      const mk=markerAt(r,c);
+      if(mk){
+        el.classList.add(mk.kind==='A'?'start':'end');
+        el.style.outlineColor=mk.car.color;
+        el.insertAdjacentHTML('beforeend',`<span class="badge" style="color:${mk.car.color}">${mk.kind}${mk.car.id+1}</span>`);
+      }
+      if(cell){
+        let ord=null;
+        if(hasAlternance(cell.type)) ord=teeAlternance(cell);
+        el.insertAdjacentHTML('afterbegin',tileSVG(cell.type,cell.rot,ord));
+      }
+    }
+  }
+  function redrawTeeWithPointer(r,c,relIn,ptr){
+    const cell=grid[r][c];if(!cell||!hasAlternance(cell.type))return;
+    const raw=ROUTE[cell.type][relIn];
+    if(!Array.isArray(raw))return;
+    const spec = cell.swap ? [raw[1], raw[0]] : raw;
+    const n=spec.length;
+    const ordered=spec.map((_,i)=>spec[(ptr+i)%n]);
+    const el=cells[r][c],badge=el.querySelector('.badge');
+    el.innerHTML='';if(badge)el.appendChild(badge);
+    el.insertAdjacentHTML('afterbegin',tileSVG(cell.type,cell.rot,{relIn, ordered}));
+  }
+  draw();
+
+  // ============== SYSTÈME DE SAUVEGARDE ==============
+  // Format : objet JSON {g:grille, o:obstacles, c:positions voitures}
+  const TYPE_CODE={straight:'s',turn:'t',tee:'T',tee_l:'L',cross:'x',dcurve:'d'};
+  const CODE_TYPE=Object.fromEntries(Object.entries(TYPE_CODE).map(([k,v])=>[v,k]));
+  function serializeGrid(){
+    const cells=[];
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      const g=grid[r][c];
+      cells.push(!g?'':(TYPE_CODE[g.type]+g.rot+(g.swap?'s':'')));
+    }
+    const obs=[];
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)obs.push(obstacles[r][c]||'');
+    const cars=CARS.map(c=>({s:[c.start.r,c.start.c],e:[c.end.r,c.end.c]}));
+    return JSON.stringify({g:cells.join('|'), o:obs.join('|'), c:cars});
+  }
+  function deserializeGrid(str){
+    if(!str||typeof str!=='string')return false;
+    let data;
+    try{ data=JSON.parse(str); }
+    catch(e){ data={g:str}; }   // rétrocompat : ancien format = juste la grille
+    const parts=(data.g||'').split('|');
+    if(parts.length!==ROWS*COLS)return false;
+    const newGrid=Array.from({length:ROWS},()=>Array(COLS).fill(null));
+    for(let i=0;i<parts.length;i++){
+      const p=parts[i]; if(!p)continue;
+      const type=CODE_TYPE[p[0]]; if(!type)continue;
+      const rt=parseInt(p[1],10); if(isNaN(rt))continue;
+      const swap=p.length>2 && p[2]==='s';
+      newGrid[Math.floor(i/COLS)][i%COLS]={type,rot:rt,order:0,swap};
+    }
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)grid[r][c]=newGrid[r][c];
+    // obstacles
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)obstacles[r][c]=null;
+    if(data.o){const op=data.o.split('|');
+      for(let i=0;i<op.length&&i<ROWS*COLS;i++)if(op[i])obstacles[Math.floor(i/COLS)][i%COLS]=op[i];}
+    // positions voitures
+    if(Array.isArray(data.c)){data.c.forEach((cc,i)=>{if(CARS[i]&&cc){
+      CARS[i].start={r:cc.s[0],c:cc.s[1]};CARS[i].end={r:cc.e[0],c:cc.e[1]};}});}
+    return true;
+  }
+
+  const AUTOSAVE_KEY='meca-autosave';
+  const SAVES_KEY='meca-saves';
+  let autosaveTimer=null;
+  function autosave(){
+    if(autosaveTimer)clearTimeout(autosaveTimer);
+    autosaveTimer=setTimeout(()=>{
+      try{localStorage.setItem(AUTOSAVE_KEY,serializeGrid());}catch(e){}
+    },300);
+  }
+  function loadAutosave(){
+    try{
+      const s=localStorage.getItem(AUTOSAVE_KEY);
+      if(s && deserializeGrid(s)){draw();}
+    }catch(e){}
+  }
+  function loadSaves(){
+    try{const s=localStorage.getItem(SAVES_KEY);return s?JSON.parse(s):[];}
+    catch(e){return [];}
+  }
+  function writeSaves(arr){
+    try{localStorage.setItem(SAVES_KEY,JSON.stringify(arr));}catch(e){}
+  }
+  function saveCircuit(name){
+    name=name.trim();
+    if(!name){flash('Donne un nom au circuit','fail');return;}
+    const saves=loadSaves();
+    const existing=saves.findIndex(s=>s.name===name);
+    const data={name, grid:serializeGrid(), date:new Date().toISOString()};
+    if(existing>=0) saves[existing]=data; else saves.push(data);
+    saves.sort((a,b)=>b.date.localeCompare(a.date));
+    writeSaves(saves);
+    refreshSavesList();
+    flash(`💾 Circuit "${name}" enregistré`,'win');
+  }
+  function deleteCircuit(name){
+    const saves=loadSaves().filter(s=>s.name!==name);
+    writeSaves(saves);
+    refreshSavesList();
+  }
+  function loadCircuit(name){
+    const saves=loadSaves();
+    const s=saves.find(x=>x.name===name);
+    if(!s)return;
+    if(deserializeGrid(s.grid)){
+      draw(); autosave();
+      flash(`📂 "${name}" chargé`,'win');
+      closeModal();
+    }
+  }
+  function refreshSavesList(){
+    const list=document.getElementById('saves-list');
+    const saves=loadSaves();
+    if(!saves.length){
+      list.innerHTML='<div class="saves-empty">Aucun circuit enregistré.<br>Donne un nom et clique sur Enregistrer.</div>';
+      return;
+    }
+    list.innerHTML='';
+    saves.forEach(s=>{
+      const d=new Date(s.date);
+      const dStr=d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+' '+
+                 d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      const item=document.createElement('div');
+      item.className='save-item';
+      const info=document.createElement('div');
+      info.style.cssText='flex:1;min-width:0';
+      const nm=document.createElement('div');nm.className='name';nm.textContent=s.name;
+      const dt=document.createElement('div');dt.className='date';dt.textContent=dStr;
+      info.appendChild(nm);info.appendChild(dt);
+      const load=document.createElement('button');load.className='load-btn';load.textContent='Charger';
+      load.onclick=()=>loadCircuit(s.name);
+      const del=document.createElement('button');del.className='del-btn';del.textContent='✕';
+      del.onclick=()=>{if(confirm(`Supprimer "${s.name}" ?`))deleteCircuit(s.name);};
+      item.appendChild(info);item.appendChild(load);item.appendChild(del);
+      list.appendChild(item);
+    });
+  }
+  function openModal(){
+    document.getElementById('modal').classList.add('open');
+    refreshSavesList();
+    document.getElementById('save-name').value='';
+  }
+  function closeModal(){document.getElementById('modal').classList.remove('open');}
+
+  document.getElementById('save').onclick=openModal;
+  document.getElementById('modal-close').onclick=closeModal;
+  document.getElementById('modal').onclick=(e)=>{
+    if(e.target.id==='modal')closeModal();
+  };
+  document.getElementById('save-btn').onclick=()=>{
+    saveCircuit(document.getElementById('save-name').value);
+  };
+
+  loadAutosave();
+
+  const eraseBtn=document.getElementById('erase');
+
+  // ---- Curseur nombre d'obstacles ----
+  let nObstacles=36;
+  const obstSlider=document.getElementById('obst-slider');
+  const obstVal=document.getElementById('obst-val');
+  obstSlider.addEventListener('input',()=>{
+    nObstacles=parseInt(obstSlider.value,10);
+    obstVal.textContent=nObstacles;
+  });
+
+  // ---- Génération d'obstacles : helpers ----
+  const obKey=(r,c)=>r+','+c;
+  function distM(a,b){return Math.abs(a.r-b.r)+Math.abs(a.c-b.c);}
+  // Familles d'obstacles : un massif est entièrement d'une même famille.
+  const OBSTACLE_FAMILIES=[
+    ['\u26f0\ufe0f','\ud83c\udfd4\ufe0f'],  // montagnes
+    ['\ud83c\udf32','\ud83c\udf33'],         // forêt
+    ['\ud83c\udf0a']                          // lac / eau
+  ];
+
+  // chemin aléatoire évitant les obstacles
+  function pathAvoid(s,e,obstSet,sin){
+    const vis=new Set([obKey(s.r,s.c)]);let path=[{r:s.r,c:s.c}],cur={r:s.r,c:s.c},g=0;
+    while((cur.r!==e.r||cur.c!==e.c)&&g++<400){
+      const opts=[];
+      [[-1,0],[1,0],[0,1],[0,-1]].forEach(([dr,dc])=>{const nr=cur.r+dr,nc=cur.c+dc;
+        if(nr<0||nr>=ROWS||nc<0||nc>=COLS)return;
+        if(vis.has(obKey(nr,nc)))return;
+        if(obstSet.has(obKey(nr,nc)))return;
+        opts.push({r:nr,c:nc});});
+      if(!opts.length)break;
+      opts.forEach(o=>o.score=distM(o,e)-Math.random()*sin);
+      opts.sort((a,b)=>a.score-b.score);
+      cur={r:opts[0].r,c:opts[0].c};vis.add(obKey(cur.r,cur.c));path.push(cur);
+    }
+    if(cur.r!==e.r||cur.c!==e.c)return null;
+    return path;
+  }
+  // Place des obstacles en massifs de 1 à 4 cases collées, chaque massif d'une seule famille.
+  // total = nombre de cases d'obstacle visé. Renvoie la liste {r,c,emoji} et marque `used`.
+  function placeObstacles(total, used){
+    const obst=[];
+    let placed=0, guard=0;
+    while(placed<total && guard++<400){
+      const fam=OBSTACLE_FAMILIES[Math.floor(Math.random()*OBSTACLE_FAMILIES.length)];
+      // taille du massif pondérée : 1→10% 2→30% 3→30% 4→20% 5→10%
+      const rTaille=Math.random();
+      let taille = rTaille<0.10?1 : rTaille<0.40?2 : rTaille<0.70?3 : rTaille<0.90?4 : 5;
+      const size=Math.min(taille, total-placed);
+      // case de départ libre
+      let r0,c0,t=0;
+      do{r0=Math.floor(Math.random()*ROWS);c0=Math.floor(Math.random()*COLS);t++;}
+      while(used.has(obKey(r0,c0))&&t<100);
+      if(used.has(obKey(r0,c0)))continue;
+      // croissance du massif par cases adjacentes
+      const massif=[{r:r0,c:c0}];used.add(obKey(r0,c0));
+      while(massif.length<size){
+        const base=massif[Math.floor(Math.random()*massif.length)];
+        const dirs=[[-1,0],[1,0],[0,1],[0,-1]].sort(()=>Math.random()-0.5);
+        let grew=false;
+        for(const[dr,dc]of dirs){const nr=base.r+dr,nc=base.c+dc;
+          if(nr<0||nr>=ROWS||nc<0||nc>=COLS)continue;
+          if(used.has(obKey(nr,nc)))continue;
+          massif.push({r:nr,c:nc});used.add(obKey(nr,nc));grew=true;break;}
+        if(!grew)break;
+      }
+      massif.forEach(m=>{obst.push({r:m.r,c:m.c,emoji:fam[Math.floor(Math.random()*fam.length)]});});
+      placed+=massif.length;
+    }
+    return obst;
+  }
+  // tire au sort positions A/B (éloignées) des 3 voitures + obstacles en massifs
+  function randomSetup(nObst){
+    const used=new Set();
+    const obst=placeObstacles(nObst, used);
+    function freeCell(){let r,c,t=0;do{r=Math.floor(Math.random()*ROWS);c=Math.floor(Math.random()*COLS);t++;}while(used.has(obKey(r,c))&&t<300);used.add(obKey(r,c));return {r,c};}
+    const pairs=[];
+    for(let i=0;i<CARS.length;i++){
+      let s,e,tries=0;
+      do{s=freeCell();e=freeCell();tries++;}while(distM(s,e)<ROWS-2 && tries<60);
+      pairs.push({start:s,end:e});
+    }
+    return {pairs,obst};
+  }
+
+  const SINUOSITY=3;   // sinuosité fixe (serpentement moyen des routes)
+
+  // Place uniquement les obstacles + les départs/arrivées (sans tracer le circuit).
+  // Garantit qu'une solution existe (chemins possibles entre chaque A/B en évitant les obstacles).
+  function generateObstacles(){
+    if(running)return;
+    for(let attempt=0;attempt<300;attempt++){
+      const {pairs,obst}=randomSetup(nObstacles);
+      const obstSet=new Set(obst.map(o=>obKey(o.r,o.c)));
+      const tmp=CARS.map((car,i)=>({start:pairs[i].start,end:pairs[i].end}));
+      const endpoints=new Set();
+      tmp.forEach(c=>{endpoints.add(obKey(c.start.r,c.start.c));endpoints.add(obKey(c.end.r,c.end.c));});
+      let solvable=true;
+      for(const car of tmp){
+        const blocked=new Set(obstSet);endpoints.forEach(k=>blocked.add(k));
+        blocked.delete(obKey(car.start.r,car.start.c));blocked.delete(obKey(car.end.r,car.end.c));
+        // plusieurs essais de chemin (pathAvoid est glouton/aléatoire)
+        let found=false;
+        for(let i=0;i<30 && !found;i++){if(pathAvoid(car.start,car.end,blocked,SINUOSITY))found=true;}
+        if(!found){solvable=false;break;}
+      }
+      if(!solvable)continue;
+      CARS.forEach((car,i)=>{car.start=pairs[i].start;car.end=pairs[i].end;});
+      for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){obstacles[r][c]=null;grid[r][c]=null;}
+      obst.forEach(o=>{obstacles[o.r][o.c]=o.emoji;});
+      flash('\u26f0\ufe0f Obstacles plac\u00e9s \u2014 \u00e0 toi de tracer les routes !','win');
+      draw();autosave();
+      return;
+    }
+    flash('Trop d\u2019obstacles ici, r\u00e9essaie ou r\u00e9duis le curseur','fail');
+  }
+  function dirTo(r,c,nr,nc){
+    if(nr<r)return 0; if(nr>r)return 2; if(nc>c)return 1; return 3;
+  }
+
+  document.getElementById('gen-obst').onclick=generateObstacles;
+  eraseBtn.onclick=()=>{eraseMode=!eraseMode;eraseBtn.style.outline=eraseMode?'2px solid var(--accent)':'';};
+  document.getElementById('clear').onclick=()=>{if(running)return;
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){grid[r][c]=null;obstacles[r][c]=null;}
+    flash('',null);draw();autosave();};
+
+  function flash(t,cls){const m=document.getElementById('msg');m.textContent=t;m.className=cls||'';}
+
+  const OPP={0:2,1:3,2:0,3:1},DR={0:-1,1:0,2:1,3:0},DC={0:0,1:1,2:0,3:-1};
+
+  // --- Cadence : délai de base d'un pas, modulé par la vitesse ---
+  const BASE_STEP=360;
+  const stepDelay=()=>Math.round(BASE_STEP*speedMult);
+  // wait() respecte la pause et le jeton de course (un STOP annule tous les wait en attente).
+  function wait(factor, cb){
+    const ms=Math.round(BASE_STEP*speedMult*factor);
+    const myToken=raceToken;
+    setTimeout(()=>{
+      if(myToken!==raceToken) return;   // course annulée -> on ne fait rien
+      if(paused){ resumeFn=cb; }
+      else { cb(); }
+    }, ms);
+  }
+
+  // Sélecteur de vitesse
+  document.querySelectorAll('.speed-btn').forEach(b=>{
+    b.onclick=()=>{
+      speedMult=parseFloat(b.dataset.mult);
+      document.querySelectorAll('.speed-btn').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      updateCarSpeed();
+    };
+  });
+  function allSegments(){
+    const segs=[];
+    trainEls.forEach(t=>{segs.push(t.loco);t.wagons.forEach(w=>segs.push(w));});
+    return segs;
+  }
+  function updateCarSpeed(){
+    const t=(stepDelay()/1000).toFixed(2);
+    allSegments().forEach(el=>{el.style.transition=`transform ${t}s linear`;});
+  }
+
+  // Bouton Pause / Reprendre
+  const pauseBtn=document.getElementById('pause');
+  pauseBtn.onclick=()=>{
+    if(!running)return;
+    paused=!paused;
+    pauseBtn.textContent=paused?'▶ Reprendre':'⏸ Pause';
+    flash(paused?'⏸ En pause':'Les voitures roulent…', paused?null:null);
+    if(!paused && resumeFn){ const f=resumeFn; resumeFn=null; f(); }
+  };
+
+  // Bouton STOP : arrête tout, remet les voitures au départ et réinitialise l'affichage.
+  const stopBtn=document.getElementById('stop');
+  stopBtn.onclick=()=>{
+    if(!running)return;
+    raceToken++;
+    running=false;paused=false;resumeFn=null;
+    pauseBtn.disabled=true;pauseBtn.textContent='⏸ Pause';
+    stopBtn.disabled=true;
+    // cache tous les segments (loco + wagons), retire les états
+    allSegments().forEach(el=>{
+      el.classList.remove('crashed');
+      el.style.display='none';
+      const body=el.querySelector('.body');
+      body.style.transition='transform .2s ease';
+      body.style.transform='';
+    });
+    clearBooms();
+    draw();
+    flash('⏹ Arrêté. Ajuste l\u2019ordre des sorties puis relance ▶','win');
+  };
+
+  document.getElementById('go').onclick=()=>{if(running)return;runRace();};
+
+  const step1=()=>TS+1;
+  // 🚗 pointe vers la gauche (Ouest) par défaut.
+  const carTransform={3:'rotate(0deg)',1:'scaleX(-1)',0:'scaleX(-1) rotate(-90deg)',2:'rotate(-90deg)'};
+
+  function clearBooms(){
+    document.querySelectorAll('.boom, .debris').forEach(b=>b.remove());
+    document.querySelectorAll('.cell.deadend-flash').forEach(c=>c.classList.remove('deadend-flash'));
+  }
+
+  // Confettis de réussite
+  function confetti(){
+    const colors=['#43aa8b','#4d8cee','#f4c430','#ee6c4d','#9b5de5','#ffd95e'];
+    const wrap=document.createElement('div');wrap.className='fx-layer';
+    for(let i=0;i<60;i++){
+      const p=document.createElement('div');p.className='confetti';
+      p.style.left=Math.random()*100+'%';
+      p.style.background=colors[Math.floor(Math.random()*colors.length)];
+      p.style.animationDelay=(Math.random()*0.4)+'s';
+      p.style.animationDuration=(1.2+Math.random()*1.2)+'s';
+      wrap.appendChild(p);
+    }
+    document.body.appendChild(wrap);
+    setTimeout(()=>wrap.remove(),3000);
+  }
+  // Éclairs de défaite
+  function lightning(){
+    const wrap=document.createElement('div');wrap.className='fx-layer';
+    for(let i=0;i<5;i++){
+      const b=document.createElement('div');b.className='bolt';b.textContent='⚡';
+      b.style.left=(10+Math.random()*80)+'%';
+      b.style.top=(Math.random()*60)+'%';
+      b.style.animationDelay=(Math.random()*0.5)+'s';
+      b.style.fontSize=(30+Math.random()*40)+'px';
+      wrap.appendChild(b);
+    }
+    const sf=document.createElement('div');sf.className='screen-flash';wrap.appendChild(sf);
+    document.body.appendChild(wrap);
+    setTimeout(()=>wrap.remove(),1600);
+  }
+
+  function runRace(){
+    running=true;paused=false;resumeFn=null;
+    raceToken++;
+    pauseBtn.disabled=false;pauseBtn.textContent='⏸ Pause';
+    stopBtn.disabled=false;
+    updateCarSpeed();
+    flash('Les trains avancent…',null);
+    clearBooms();
+    draw();
+    const s=step1();
+    function endRace(){ running=false; paused=false; resumeFn=null;
+      pauseBtn.disabled=true; pauseBtn.textContent='⏸ Pause';
+      stopBtn.disabled=true; }
+    const xPointer={};
+
+    // état de chaque train.
+    // trail = liste des cases occupées, index 0 = locomotive, puis wagons.
+    // emerged = nombre de segments déjà sortis de la gare (croît jusqu'à 1+NWAGONS).
+    // headDone = la locomotive a atteint l'arrivée (le train rentre alors en gare).
+    const state=CARS.map((car,i)=>{
+      const t=trainEls[i];
+      t.loco.classList.remove('crashed');
+      t.loco.querySelector('.body').style.transform=carTransform[1];
+      t.loco.style.display='flex';
+      t.loco.style.transform=`translate(${car.start.c*s}px,${car.start.r*s}px)`;
+      t.wagons.forEach(w=>{w.classList.remove('crashed');w.style.display='none';w.dataset.shown='0';
+        w.style.transform=`translate(${car.start.c*s}px,${car.start.r*s}px)`;});
+      return {car, loco:t.loco, wagons:t.wagons,
+              trail:[{r:car.start.r,c:car.start.c,d:1}],
+              r:car.start.r, c:car.start.c, cameFrom:-1,
+              alive:true, headDone:false, done:false, emerged:1, pendingTee:null};
+    });
+
+    for(const st of state){
+      if(!grid[st.r][st.c]){endRace();
+        return flash(`Pose une route sur la gare A${st.car.id+1} !`,'fail');}
+    }
+
+    const totalLen=1+NWAGONS;
+
+    function tick(){
+      // 1) calcule le mouvement de la tête de chaque train actif
+      const moves={};
+      for(const st of state){
+        if(!st.alive||st.done){moves[st.car.id]=null;continue;}
+        if(st.headDone){moves[st.car.id]='drain';continue;}
+        moves[st.car.id]=computeNext(st);
+      }
+
+      // 2) applique les mouvements (avance / drain) AVANT de tester les collisions,
+      //    pour comparer les occupations RÉELLES après déplacement (évite les faux
+      //    positifs quand un train libère une case qu'un autre prend au même tick).
+      const prevHead={};
+      for(const st of state){ if(st.alive&&!st.done) prevHead[st.car.id]={r:st.r,c:st.c}; }
+      for(const st of state){
+        if(!st.alive||st.done)continue;
+        const m=moves[st.car.id];
+        if(m==='drain' || st.headDone){ drainTrain(st); }
+        else if(m){ advanceTrain(st,m); }
+      }
+
+      // 3) collisions : deux trains occupent-ils réellement une même case ?
+      function laneOf(r,c,d){
+        const cell=grid[r] && grid[r][c];
+        if(!cell || cell.type!=='dcurve' || d==null) return 0;
+        const entryAbs=OPP[d];
+        const rel=(entryAbs - cell.rot + 4) % 4;
+        return (rel===0||rel===1) ? 1 : 2;
+      }
+      function cellsOf(st){
+        // cases réellement occupées (loco + wagons visibles), avec direction
+        const out=[];
+        const max=Math.min(st.trail.length, st.emerged);
+        for(let k=0;k<max;k++){const seg=st.trail[k];out.push({r:seg.r,c:seg.c,d:seg.d});}
+        return out;
+      }
+      // Un train dont la locomotive est déjà entrée en gare (headDone) est en phase de
+      // rangement : ses wagons rentrent et ne provoquent plus d'accident.
+      const activeTrains=state.filter(st=>st.alive&&!st.done&&!st.headDone);
+      for(let i=0;i<activeTrains.length;i++)for(let j=i+1;j<activeTrains.length;j++){
+        const A=activeTrains[i], B=activeTrains[j];
+        const ca=cellsOf(A), cb=cellsOf(B);
+        let hit=null;
+        for(const pa of ca)for(const pb of cb){
+          if(pa.r===pb.r&&pa.c===pb.c){
+            const la=laneOf(pa.r,pa.c,pa.d), lb=laneOf(pb.r,pb.c,pb.d);
+            if(la!==0 && lb!==0 && la!==lb) continue; // dcurve voies différentes : OK
+            hit={r:pa.r,c:pa.c};break;
+          }
+        }
+        // échange frontal : les deux locos ont permuté leurs cases (se sont croisées)
+        if(!hit){
+          const pa=prevHead[A.car.id], pb=prevHead[B.car.id];
+          if(pa&&pb&&A.r===pb.r&&A.c===pb.c&&B.r===pa.r&&B.c===pa.c){
+            hit={r:A.r,c:A.c};
+          }
+        }
+        if(hit){ wait(1, ()=>crashTrains(hit.r,hit.c,A,B)); wait(1, tick); return; }
+      }
+
+      // 4) fin ?
+      const allFinished=state.every(st=>st.done||!st.alive);
+      if(allFinished){
+        endRace();
+        const arrived=state.filter(st=>st.done).length;
+        const lost=state.filter(st=>!st.alive&&!st.done).length;
+        if(arrived===state.length){confetti();return flash('🏁 Bravo ! Tous les trains sont arrivés !','win');}
+        if(arrived>0){confetti();return flash(`🏁 ${arrived} train(s) arrivé(s), ${lost} détruit(s).`,'win');}
+        lightning();return flash('⚡ Aucun train n\u2019a atteint sa gare.','fail');
+      }
+      wait(1, tick);
+    }
+
+    // place visuellement loco + wagons selon le trail
+    function renderTrain(st){
+      if(st.trail.length>0 && !st.headDone){
+        const h=st.trail[0];
+        st.loco.style.display='flex';
+        st.loco.style.transform=`translate(${h.c*s}px,${h.r*s}px)`;
+        st.loco.querySelector('.body').style.transform=carTransform[h.d]||'';
+      }else{
+        st.loco.style.display='none';
+      }
+      for(let w=0;w<NWAGONS;w++){
+        const seg=st.trail[w+1];
+        const el=st.wagons[w];
+        if(seg && (w+1)<st.emerged){
+          const wasHidden = el.style.display==='none' || el.dataset.shown!=='1';
+          if(wasHidden){
+            // apparition : on place sans transition pour éviter un saut depuis l'origine
+            const prev=el.style.transition;
+            el.style.transition='none';
+            el.style.transform=`translate(${seg.c*s}px,${seg.r*s}px)`;
+            el.style.display='flex';
+            el.dataset.shown='1';
+            // force le reflow puis restaure la transition
+            void el.offsetWidth;
+            el.style.transition=prev|| '';
+          }else{
+            el.style.transform=`translate(${seg.c*s}px,${seg.r*s}px)`;
+          }
+          el.querySelector('.body').style.transform=carTransform[seg.d]||'';
+        }else{
+          el.style.display='none';
+          el.dataset.shown='0';
+        }
+      }
+    }
+
+    // avance la tête d'une case (sortie de gare progressive)
+    function advanceTrain(st,m){
+      // applique l'incrément d'alternance du T que la loco vient de franchir réellement
+      if(st.pendingTee){
+        const {k,newPtr,relIn}=st.pendingTee;
+        xPointer[k]=newPtr;
+        const cr=st.trail[0].r, cc=st.trail[0].c;  // case du T qu'on quitte
+        if(navigator.vibrate)navigator.vibrate(15);
+        wait(0.5, ()=>redrawTeeWithPointer(cr,cc,relIn,newPtr));
+        st.pendingTee=null;
+      }
+      st.trail.unshift({r:m.nr,c:m.nc,d:m.d});
+      if(st.trail.length>totalLen)st.trail.pop();
+      st.r=m.nr;st.c=m.nc;st.cameFrom=OPP[m.d];
+      if(st.emerged<totalLen)st.emerged++;
+      if(st.r===st.car.end.r && st.c===st.car.end.c){
+        st.headDone=true;
+      }
+      renderTrain(st);
+    }
+
+    // la loco est arrivée : on retire la tête, les wagons rentrent un à un
+    function drainTrain(st){
+      st.headDone=true;
+      st.trail.shift();        // enlève le segment de tête (rentré en gare)
+      if(st.emerged>0)st.emerged--;
+      if(st.trail.length===0){ st.done=true; st.loco.style.display='none';
+        st.wagons.forEach(w=>w.style.display='none'); return; }
+      renderTrain(st);
+    }
+
+    function eliminate(st, kind, msg){
+      st.alive=false;
+      const sCell=cells[st.r] && cells[st.r][st.c];
+      if(kind==='explode'){
+        st.loco.classList.add('crashed');
+        const boom=document.createElement('div');boom.className='boom';boom.textContent='💥';
+        boom.style.left=(st.c*s)+'px';boom.style.top=(st.r*s)+'px';
+        board.appendChild(boom);
+        if(navigator.vibrate)navigator.vibrate(600);
+        setTimeout(()=>{
+          st.loco.style.display='none';
+          st.wagons.forEach(w=>w.style.display='none');
+          const debris=document.createElement('div');
+          debris.className='debris';debris.textContent='🔥';
+          debris.style.left=(st.c*s)+'px';debris.style.top=(st.r*s)+'px';
+          board.appendChild(debris);
+        },700);
+      }else if(kind==='deadend'){
+        if(sCell){sCell.classList.add('deadend-flash');}
+        if(navigator.vibrate)navigator.vibrate(600);
+      }
+      flash(`${kind==='explode'?'💥':'🚨'} ${st.car.name} : ${msg}`,'fail');
+    }
+
+    function computeNext(st){
+      const cell=grid[st.r][st.c];
+      if(!cell){eliminate(st,'explode','rails coupés 🚧');return false;}
+      const back=st.cameFrom;
+      const reachable=d=>{
+        const nr=st.r+DR[d], nc=st.c+DC[d];
+        if(nr<0||nr>=ROWS||nc<0||nc>=COLS) return false;
+        const next=grid[nr][nc];
+        return !!next && openDirs(next).includes(OPP[d]);
+      };
+      if(ROUTE[cell.type] && back!==-1){
+        const relIn=(back - cell.rot + 4) % 4;
+        let relOutSpec=ROUTE[cell.type][relIn];
+        if(relOutSpec===undefined){eliminate(st,'explode','entrée par un côté fermé 🔌');return false;}
+        let relOut;
+        if(Array.isArray(relOutSpec)){
+          const spec = cell.swap ? [relOutSpec[1], relOutSpec[0]] : relOutSpec;
+          const k=st.r+','+st.c+'/'+relIn;
+          const p=(xPointer[k]||0) % spec.length;
+          relOut=spec[p];
+          // NE PAS incrémenter ici : l'incrément se fait au franchissement réel (advanceTrain),
+          // pour éviter les doubles incréments quand le tick est abandonné (collision ailleurs).
+          st.pendingTee={k, newPtr:(p+1)%spec.length, relIn};
+        }else{ relOut=relOutSpec; st.pendingTee=null; }
+        const d=(relOut + cell.rot) % 4;
+        if(!reachable(d)){
+          const nr=st.r+DR[d],nc=st.c+DC[d];
+          const off=(nr<0||nr>=ROWS||nc<0||nc>=COLS);
+          eliminate(st,'explode', off?'rails hors plateau 🚧':'rails non connectés 🔌');
+          return false;
+        }
+        return {d, nr:st.r+DR[d], nc:st.c+DC[d]};
+      }
+      st.pendingTee=null;
+      const usable=openDirs(cell).filter(d=>d!==back && reachable(d));
+      if(!usable.length){
+        const offboard=openDirs(cell).filter(d=>d!==back).some(d=>{
+          const nr=st.r+DR[d],nc=st.c+DC[d];
+          return nr<0||nr>=ROWS||nc<0||nc>=COLS;
+        });
+        if(offboard)eliminate(st,'explode','rails hors plateau 🚧');
+        else eliminate(st,'deadend','cul-de-sac');
+        return false;
+      }
+      const d=usable[0];
+      return {d, nr:st.r+DR[d], nc:st.c+DC[d]};
+    }
+
+    function crashTrains(cr,cc,a,b){
+      a.alive=false;b.alive=false;
+      [a,b].forEach(t=>{t.loco.classList.add('crashed');t.wagons.forEach(w=>w.classList.add('crashed'));});
+      const boom=document.createElement('div');boom.className='boom big';boom.textContent='💥';
+      boom.style.left=(cc*s)+'px';boom.style.top=(cr*s)+'px';
+      board.appendChild(boom);
+      setTimeout(()=>{
+        [a,b].forEach(t=>{
+          t.loco.style.display='none';t.wagons.forEach(w=>w.style.display='none');
+          const debris=document.createElement('div');debris.className='debris';debris.textContent='🔥';
+          debris.style.left=(t.c*s)+'px';debris.style.top=(t.r*s)+'px';
+          board.appendChild(debris);
+        });
+      },700);
+      if(navigator.vibrate)navigator.vibrate(900);
+      flash('💥 Collision entre trains !','fail');
+    }
+
+    wait(0.85, tick);
+  }
+
+  const relayout=()=>{TS=setTileSize();
+    board.style.gridTemplateColumns=`repeat(${COLS},var(--ts))`;draw();};
+  window.addEventListener('resize',relayout);
+  window.addEventListener('orientationchange',()=>setTimeout(relayout,150));
+})();
+
+// Enregistrement du service worker (active l'installation PWA et le hors-ligne)
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(err=>console.warn('SW non enregistré:',err));
+  });
+}
+</script>
+</body>
+</html>
